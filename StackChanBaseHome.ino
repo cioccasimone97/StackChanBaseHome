@@ -10,7 +10,6 @@
 
 
 void setup() {
-  Serial.begin(115200);
   M5StackChan.begin();
 
   auto& display = M5StackChan.Display();

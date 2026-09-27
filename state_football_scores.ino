@@ -1,33 +1,3 @@
-// 1. Struttura dati singola partita
-struct MatchItem {
-  String competition;
-  String homeTeam;
-  String awayTeam;
-  int homeScore;
-  int awayScore;
-  String status;
-  String matchTime;
-  String fullUtcDate;  // Per l'ordinamento ISO
-};
-MatchItem matches[MAX_MATCHES];
-
-// 2. Struttura per un elemento visivo a schermo (Header o Partita)
-struct DisplayRow {
-  bool isHeader;
-  String compName;
-  MatchItem match;
-};
-
-// 3. Struttura per una singola pagina del display
-struct Page {
-  DisplayRow rows[MAX_ROWS_PER_PAGE];
-  int rowCount = 0;
-};
-
-Page footballPages[MAX_PAGES];
-
-String footballStatusMsg = "Caricamento...";
-
 // 4. Algoritmo per impaginare dinamicamente (conta righe Header + Partita)
 void buildFootballPages() {
   totalFootballPages = 0;
