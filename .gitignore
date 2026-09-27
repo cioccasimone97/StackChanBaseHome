@@ -1,0 +1,17 @@
+# File con credenziali sensibili
+secrets.h
+
+# Cartella temporanea di build di Arduino IDE 2.x
+build/
+
+# Configurazione locale e cache di VS Code (se usi l'estensione Arduino)
+.vscode/
+
+# File temporanei di compilazione
+*.hex
+*.elf
+*.bin
+
+# File di sistema operativo
+.DS_Store
+Thumbs.db
