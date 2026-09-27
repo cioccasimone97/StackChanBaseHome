@@ -1,4 +1,3 @@
-// 4. Algoritmo per impaginare dinamicamente (conta righe Header + Partita)
 void buildFootballPages() {
   totalFootballPages = 0;
   if (matchCount == 0) return;
@@ -46,17 +45,13 @@ void fetchFootballData(int nTry) {
   }
 
   nTry++;
-  String url = "https://api.football-data.org/v4/matches";
+  url = "https://api.football-data.org/v4/matches";
 
-  // 1. Inizializza il client SSL in modalità flessibile (senza ver. certificato)
   WiFiClientSecure client;
   client.setInsecure();
 
-  // 2. Apri la connessione passando 'client'
   if (http.begin(client, url)) {
     http.setTimeout(10000);  // 10 secondi timeout
-
-    // 3. AGGIUNGI L'USER-AGENT (Fondamentale! Postman lo fa in automatico)
     http.addHeader("User-Agent", "ESP32-M5Stack/1.0");
     http.addHeader("X-Auth-Token", FOOTBALL_API_KEY);
 
@@ -128,7 +123,7 @@ void fetchFootballData(int nTry) {
     } else {
       footballStatusMsg = "Errore HTTP " + String(httpResponseCode);
     }
-    http.end();  // Chiudi la connessione
+    http.end();
   } else {
     footballStatusMsg = "Errore Connessione";
   }
@@ -137,21 +132,13 @@ void fetchFootballData(int nTry) {
 }
 
 
-
-
-// 6. Rendering a Schermo
 void updateDisplayMatches() {
   auto& display = M5StackChan.Display();
-
   display.fillScreen(TFT_BLACK);
 
-  // 1. BARRA TITOLO
   drawTitleBar(TFT_DARKGREEN, "PARTITE DI OGGI");
-
-  // Carico i colori nell'array
   colorList.assign(nLedNumber, TFT_DARKGREEN);
 
-  // 2. CONTROLLO PARTITE ASSENTI
   if (matchCount == 0 || totalFootballPages == 0) {
     display.setTextSize(2);
     display.setTextColor(TFT_YELLOW);
@@ -224,7 +211,5 @@ void updateDisplayMatches() {
     currentY += rowHeight;
   }
 
-  // Footer con indicatore di pagina (es: "Pag 1/3 - 18:30:00")
-  String footerStr = "Pag " + String(currentFootballPage + 1) + "/" + String(totalFootballPages) + " - " + lastUpdDateTime;
-  drawFooterBar(footerStr);
+  drawFooterBar("Pag " + String(currentFootballPage + 1) + "/" + String(totalFootballPages) + " - " + lastUpdDateTime);
 }

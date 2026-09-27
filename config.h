@@ -85,7 +85,7 @@ struct MatchItem {
   int awayScore;
   String status;
   String matchTime;
-  String fullUtcDate;  // Per l'ordinamento ISO
+  String fullUtcDate;
 };
 MatchItem matches[MAX_MATCHES];
 struct DisplayRow {
