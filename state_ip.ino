@@ -1,34 +1,34 @@
 void fetchPublicIP() {
   if (WiFi.status() != WL_CONNECTED) {
-    IPDesc = "WiFi disconnesso.";
+    currentPublicIP = "WiFi disconnesso.";
     return;
   }
 
-  url = "https://api.ipify.org?format=json";
-  http.begin(url);
-  int httpResponseCode = http.GET();
+  WiFiClientSecure secureClient;
+  secureClient.setInsecure();
 
-  if (httpResponseCode > 0) {
-    String payload = http.getString();
-    Serial.println("payload " + payload);
-    /*error = deserializeJson(doc, payload);
+  // Usiamo un buffer locale sicuro
+  if (http.begin(secureClient, "https://api.ipify.org?format=json")) {
+    int httpResponseCode = http.GET();
 
-    if (!error) {
-      currentPublicIP = doc["ip"].as<String>();
-    }*/
+    if (httpResponseCode > 0) {
+      String payload = http.getString();
+      error = deserializeJson(doc, payload);
+
+      if (!error) {
+        currentPublicIP = doc["ip"].as<String>();
+      } else {
+        currentPublicIP = "Errore parsing JSON";
+      }
+    } else {
+      currentPublicIP = "Errore HTTP (" + String(httpResponseCode) + ")";
+    }
+    http.end();
   } else {
-    currentPublicIP = "Errore riconoscimento IP";
+    currentPublicIP = "Errore connessione";
   }
 
-  http.end();
   lastIPCheck = millis();
-
-  struct tm timeinfo;
-  if (getLocalTime(&timeinfo)) {
-    char timeBuffer[25];
-    strftime(timeBuffer, sizeof(timeBuffer), "%d/%m/%Y %H:%M:%S", &timeinfo);
-    lastUpdDateTime = String(timeBuffer);
-  }
 }
 
 void updateDisplayIP() {
@@ -45,16 +45,35 @@ void updateDisplayIP() {
   display.fillRoundRect(0, hTitleBar, w, h - hTitleBar, 8, COLOR_BOX);
   display.drawRoundRect(0, hTitleBar, w, h - hTitleBar, 8, COLOR_BORDER);
 
-  // Carico i colori nell'array
-  colorList.assign(nLedNumber, COLOR_BOX);
-
-  // Parametri di rendering del testo all'interno del box
   display.setTextSize(2);
-  display.setTextColor(TFT_BLACK);
-  display.setTextDatum(textdatum_t::top_left);
+  display.setTextDatum(textdatum_t::top_center);  // Centrato orizzontalmente in alto per ogni riga
 
-  //display.drawString(IPDesc, centerX + 2, (bodyCenterY - 75) + 2);
-  display.drawString("AA BB", centerX + 2, (bodyCenterY - 75) + 2);
+  int startY = bodyCenterY - 50;  // Sposta in alto per fare spazio a 4-5 righe
+  int stepY = 20;                 // Spaziatura tra una riga e la successiva
+
+  // ---- RIGA 1: IP pubblico (Titolo) ----
+  display.setTextColor(TFT_BLACK);  // Ombra
+  display.drawString("IP pubblico:", centerX + 1, startY + 1);
+  display.setTextColor(TFT_YELLOW);
+  display.drawString("IP pubblico:", centerX, startY);
+
+  // ---- RIGA 2: Valore IP pubblico ----
+  display.setTextColor(TFT_BLACK);
+  display.drawString(currentPublicIP, centerX + 1, startY + stepY + 1);
+  display.setTextColor(TFT_WHITE);
+  display.drawString(currentPublicIP, centerX, startY + stepY);
+
+  // ---- RIGA 3: IP locale (Titolo) ----
+  display.setTextColor(TFT_BLACK);
+  display.drawString("IP locale:", centerX + 1, startY + (stepY * 2.5) + 1);
+  display.setTextColor(TFT_YELLOW);
+  display.drawString("IP locale:", centerX, startY + (stepY * 2.5));
+
+  // ---- RIGA 4: Valore IP locale ----
+  display.setTextColor(TFT_BLACK);
+  display.drawString(currentLocalIP, centerX + 1, startY + (stepY * 3.5) + 1);
+  display.setTextColor(TFT_WHITE);
+  display.drawString(currentLocalIP, centerX, startY + (stepY * 3.5));
 
   drawFooterBar("Ultimo aggiornamento: " + lastUpdDateTime);
 }

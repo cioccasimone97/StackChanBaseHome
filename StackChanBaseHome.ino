@@ -33,11 +33,11 @@ void setup() {
     for (int i = 0; i <= (dots % 3); i++) {
       connectingMsg += ".";
     }
-    //currentLocalIP = WiFi.localIP();
     updateDisplay(connectingMsg.c_str());
     dots++;
   }
 
+  currentLocalIP = WiFi.localIP().toString();
   updateDisplay("WiFi Connesso!");
   delay(500);
 
