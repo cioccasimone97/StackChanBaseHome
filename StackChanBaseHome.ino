@@ -33,6 +33,7 @@ void setup() {
     for (int i = 0; i <= (dots % 3); i++) {
       connectingMsg += ".";
     }
+    //currentLocalIP = WiFi.localIP();
     updateDisplay(connectingMsg.c_str());
     dots++;
   }
@@ -87,6 +88,9 @@ void showCurrentStateInfo() {
     case STATE_FOOTBALL_SCORES:
       updateDisplayMatches();
       break;
+    case STATE_IP:
+      updateDisplayIP();
+      break;
   }
 }
 
@@ -128,6 +132,13 @@ void runCurrentState() {
         drawLedColor(100, 50);
         break;
       }
+    case STATE_IP:
+      if (millis() - lastIPCheck > IP_UPDATE_INTERVAL || lastIPCheck == 0) {
+        fetchPublicIP();
+        updateDisplayIP();
+      }
+      drawLedColor(100, 50);
+      break;
   }
 
   if (M5.BtnPWR.wasClicked()) {

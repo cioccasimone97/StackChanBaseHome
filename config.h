@@ -6,6 +6,7 @@
 // --- WI-FI CONFIG ---
 const char* WIFI_SSID = SECRET_WIFI_SSID;
 const char* WIFI_PASSWORD = SECRET_WIFI_PASS;
+String currentLocalIP="";
 
 
 // --- WEATHER CONFIG ---
@@ -33,6 +34,7 @@ enum State {
   STATE_METEO,
   STATE_NEWS,
   STATE_FOOTBALL_SCORES,
+  STATE_IP,
   STATE_MAX  // Usato per calcolare quanti stati ci sono
 };
 State currentState;
@@ -64,7 +66,6 @@ const int MAX_NEWS = 10;
 String newsHeadlines[MAX_NEWS];
 int currentNewsIndex = 0;
 unsigned long lastNewsCheck = 0;
-unsigned long lastFootballCheck = 0;
 const unsigned long NEWS_UPDATE_INTERVAL = 1UL * 60UL * 1000UL;  // Aggiorna ogni 1 minuto
 
 
@@ -74,6 +75,7 @@ const char* FOOTBALL_API_KEY = SECRET_FOOTBALL_API_KEY;
 const int MAX_MATCHES = 150;
 const int MAX_PAGES = 20;
 int matchCount = 0;
+unsigned long lastFootballCheck = 0;
 int totalFootballPages = 0;
 int currentFootballPage = 0;
 const int MAX_ROWS_PER_PAGE = 8;
@@ -99,3 +101,9 @@ struct Page {
 };
 Page footballPages[MAX_PAGES];
 String footballStatusMsg = "Caricamento...";
+
+// --- IP CONFIG ---
+unsigned long lastIPCheck = 0;
+const unsigned long IP_UPDATE_INTERVAL = 1UL * 60UL * 1000UL;  // Aggiorna ogni 1 minuto
+String IPDesc = "Caricamento...";
+String currentPublicIP = "";
