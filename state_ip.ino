@@ -1,41 +1,56 @@
 void fetchPublicIP() {
   if (WiFi.status() != WL_CONNECTED) {
     currentPublicIP = "WiFi disconnesso.";
-    currentLocalIP = "N/D";
     return;
   }
 
-  // Dichiariamo client sicuro e http come variabili LOCALI (fondamentale per evitare crash)
-  WiFiClientSecure secureClient;
-  secureClient.setInsecure();
-  secureClient.setTimeout(5000);  // Timeout di sicurezza per evitare blocchi
+  // Usiamo il client standard in chiaro sulla porta 80 (niente Secure, niente crash)
+  WiFiClient client;
+  // Timeout di sicurezza per non bloccare il codice se il server non risponde
+  client.setTimeout(5000);
 
-  http.setConnectTimeout(5000);
+  if (client.connect("api.ipify.org", 80)) {
+    Serial.println("Connesso a ipify (porta 80)");
 
-  // Usiamo un buffer locale sicuro
-  if (http.begin(secureClient, "https://api.ipify.org?format=json")) {
-    int httpResponseCode = http.GET();
+    // Inviamo la richiesta HTTP in chiaro
+    client.println("GET /?format=json HTTP/1.1");
+    client.println("Host: api.ipify.org");
+    client.println("Connection: close");
+    client.println();  // Riga vuota obbligatoria per chiudere gli headers
 
-    if (httpResponseCode > 0) {
-      String payload = http.getString();
-      error = deserializeJson(doc, payload);
+    // Leggiamo la risposta del server
+    String payload = "";
+    bool headersEnded = false;
 
-      if (!error) {
-        currentPublicIP = doc["ip"].as<String>();
-      } else {
-        currentPublicIP = "Errore parsing JSON";
+    while (client.connected() || client.available()) {
+      String line = client.readStringUntil('\n');
+      // Quando troviamo una riga vuota "\r", finiscono gli header HTTP e inizia il corpo (il JSON)
+      if (line == "\r") {
+        headersEnded = true;
+        continue;
       }
-    } else {
-      currentPublicIP = "Errore HTTP (" + String(httpResponseCode) + ")";
+      if (headersEnded) {
+        payload += line + "\n";
+      }
     }
-    http.end();
+    client.stop();
+
+    // Parsing del JSON ricevuto
+    error = deserializeJson(doc, payload);
+
+    if (!error) {
+      currentPublicIP = doc["ip"].as<String>();
+    } else {
+      currentPublicIP = "Errore parsing JSON";
+    }
+
   } else {
-    currentPublicIP = "Errore connessione";
+    currentPublicIP = "Errore connessione 80";
   }
 
   lastIPCheck = millis();
 
-  // Aggiornamento timestamp in modo sicuro
+  // Aggiornamento ora
   struct tm timeinfo;
   if (getLocalTime(&timeinfo)) {
     char timeBuffer[25];
@@ -57,6 +72,9 @@ void updateDisplayIP() {
 
   display.fillRoundRect(0, hTitleBar, w, h - hTitleBar, 8, COLOR_BOX);
   display.drawRoundRect(0, hTitleBar, w, h - hTitleBar, 8, COLOR_BORDER);
+
+  // Carico i colori nell'array
+  colorList.assign(nLedNumber, COLOR_BOX);
 
   display.setTextSize(2);
   display.setTextDatum(textdatum_t::top_center);  // Centrato orizzontalmente in alto per ogni riga
