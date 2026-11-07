@@ -1,11 +1,16 @@
 void fetchPublicIP() {
   if (WiFi.status() != WL_CONNECTED) {
     currentPublicIP = "WiFi disconnesso.";
+    currentLocalIP = "N/D";
     return;
   }
 
+  // Dichiariamo client sicuro e http come variabili LOCALI (fondamentale per evitare crash)
   WiFiClientSecure secureClient;
   secureClient.setInsecure();
+  secureClient.setTimeout(5000);  // Timeout di sicurezza per evitare blocchi
+
+  http.setConnectTimeout(5000);
 
   // Usiamo un buffer locale sicuro
   if (http.begin(secureClient, "https://api.ipify.org?format=json")) {
@@ -29,6 +34,14 @@ void fetchPublicIP() {
   }
 
   lastIPCheck = millis();
+
+  // Aggiornamento timestamp in modo sicuro
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo)) {
+    char timeBuffer[25];
+    strftime(timeBuffer, sizeof(timeBuffer), "%d/%m/%Y %H:%M:%S", &timeinfo);
+    lastUpdDateTime = String(timeBuffer);
+  }
 }
 
 void updateDisplayIP() {
