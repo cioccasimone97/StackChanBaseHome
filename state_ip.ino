@@ -1,13 +1,16 @@
 void fetchPublicIP() {
   if (WiFi.status() != WL_CONNECTED) {
     currentPublicIP = "WiFi disconnesso.";
+    currentLocalIP = "N/D";
+    lastIPCheck = millis();
     return;
   }
+  currentLocalIP = WiFi.localIP().toString();
 
   // Usiamo il client standard in chiaro sulla porta 80 (niente Secure, niente crash)
   WiFiClient client;
   // Timeout di sicurezza per non bloccare il codice se il server non risponde
-  client.setTimeout(5000);
+  client.setTimeout(1000);
 
   if (client.connect("api.ipify.org", 80)) {
     Serial.println("Connesso a ipify (porta 80)");
@@ -19,10 +22,17 @@ void fetchPublicIP() {
     client.println();  // Riga vuota obbligatoria per chiudere gli headers
 
     // Leggiamo la risposta del server
-    String payload = "";
+    String payload;
+    payload.reserve(64);
     bool headersEnded = false;
+    const unsigned long responseTimeout = 5000;
+    const unsigned long responseStart = millis();
 
-    while (client.connected() || client.available()) {
+    while ((client.connected() || client.available()) && millis() - responseStart < responseTimeout) {
+      if (!client.available()) {
+        delay(1);  // Cede la CPU a WiFi/FreeRTOS senza introdurre un blocco prolungato.
+        continue;
+      }
       String line = client.readStringUntil('\n');
       // Quando troviamo una riga vuota "\r", finiscono gli header HTTP e inizia il corpo (il JSON)
       if (line == "\r") {
@@ -36,7 +46,8 @@ void fetchPublicIP() {
     client.stop();
 
     // Parsing del JSON ricevuto
-    error = deserializeJson(doc, payload);
+    doc.clear();
+    DeserializationError error = deserializeJson(doc, payload);
 
     if (!error) {
       currentPublicIP = doc["ip"].as<String>();
@@ -74,7 +85,7 @@ void updateDisplayIP() {
   display.drawRoundRect(0, hTitleBar, w, h - hTitleBar, 8, COLOR_BORDER);
 
   // Carico i colori nell'array
-  colorList.assign(nLedNumber, COLOR_BOX);
+  for (int i = 0; i < nLedNumber; i++) colorList[i] = COLOR_BOX;
 
   display.setTextSize(2);
   display.setTextDatum(textdatum_t::top_center);  // Centrato orizzontalmente in alto per ogni riga

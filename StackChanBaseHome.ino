@@ -4,13 +4,14 @@
 #include <M5StackChan.h>
 #include <config.h>
 #include <Arduino.h>
-#include <vector>
 #include <algorithm>
 #include <WiFiClientSecure.h>
+#include <esp_system.h>
 
 
 void setup() {
   M5StackChan.begin();
+  Serial.printf("Reset reason: %d, heap libero: %u\n", esp_reset_reason(), ESP.getFreeHeap());
 
   auto& display = M5StackChan.Display();
   centerX = display.width() / 2;
@@ -27,7 +28,9 @@ void setup() {
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   int dots = 0;
-  while (WiFi.status() != WL_CONNECTED) {
+  const unsigned long wifiTimeout = 15000;
+  unsigned long wifiStart = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - wifiStart < wifiTimeout) {
     delay(500);
     String connectingMsg = "Connessione WiFi";
     for (int i = 0; i <= (dots % 3); i++) {
@@ -37,19 +40,28 @@ void setup() {
     dots++;
   }
 
-  currentLocalIP = WiFi.localIP().toString();
-  updateDisplay("WiFi Connesso!");
-  delay(500);
+  if (WiFi.status() == WL_CONNECTED) {
+    currentLocalIP = WiFi.localIP().toString();
+    updateDisplay("WiFi Connesso!");
+    delay(500);
+  } else {
+    // L'avvio prosegue anche senza rete: le funzioni di stato ritenteranno in seguito.
+    currentLocalIP = "N/D";
+    updateDisplay("WiFi non connesso");
+  }
 
-  updateDisplay("Sincronizzazione ora...");
-  struct tm timeinfo;
-  int retry = 0;
+  // Avvia SNTP anche offline: si sincronizzerà automaticamente a una successiva connessione WiFi.
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
   setenv("TZ", "CET-1CEST,M3.5.0/2,M10.5.0/3", 1);
   tzset();
-  while (!getLocalTime(&timeinfo) && retry < 30) {
-    delay(500);
-    retry++;
+  if (WiFi.status() == WL_CONNECTED) {
+    updateDisplay("Sincronizzazione ora...");
+    struct tm timeinfo;
+    int retry = 0;
+    while (!getLocalTime(&timeinfo) && retry < 30) {
+      delay(500);
+      retry++;
+    }
   }
 
   currentState = STATE_METEO;
@@ -58,15 +70,49 @@ void setup() {
 }
 
 
+void logHeap(const char* context) {
+  Serial.printf("Heap %s - libero: %u, minimo: %u, blocco max: %u\n", context, ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+}
+
+
 void loop() {
   M5StackChan.update();
 
   auto& ts = M5StackChan.TouchSensor;
   if (ts.wasClicked()) {
+    // I sensori capacitivi esterni sono riservati al cambio di STATE.
     handleTouchTransition();
   }
 
+  // Il touchscreen del display sfoglia news e pagine calcio.
+  if (currentState == STATE_NEWS || currentState == STATE_FOOTBALL_SCORES) {
+    auto touch = M5.Touch.getDetail();
+    if (touch.wasClicked()) {
+      // Metà destra = avanti, metà sinistra = indietro.
+      handleContentNavigation(touch.x >= centerX);
+    }
+  }
+
   runCurrentState();
+}
+
+
+void handleContentNavigation(bool forward) {
+  if (currentState == STATE_NEWS && newsCount > 1) {
+    if (forward) {
+      currentNewsIndex = (currentNewsIndex + 1) % newsCount;
+    } else {
+      currentNewsIndex = (currentNewsIndex + newsCount - 1) % newsCount;
+    }
+    updateDisplayNews();
+  } else if (currentState == STATE_FOOTBALL_SCORES && totalFootballPages > 1) {
+    if (forward) {
+      currentFootballPage = (currentFootballPage + 1) % totalFootballPages;
+    } else {
+      currentFootballPage = (currentFootballPage + totalFootballPages - 1) % totalFootballPages;
+    }
+    updateDisplayMatches();
+  }
 }
 
 
@@ -110,11 +156,6 @@ void runCurrentState() {
           fetchNewsData();
           updateDisplayNews();
         }
-        auto touch = M5.Touch.getDetail();
-        if (touch.wasClicked()) {
-          currentNewsIndex = (currentNewsIndex + 1) % MAX_NEWS;
-          updateDisplayNews();
-        }
         drawLedColor(100, 50);
         break;
       }
@@ -122,11 +163,6 @@ void runCurrentState() {
       {
         if (millis() - lastFootballCheck > footballInterval || lastFootballCheck == 0) {
           fetchFootballData(0);
-          updateDisplayMatches();
-        }
-        auto touch = M5.Touch.getDetail();
-        if (touch.wasClicked()) {
-          currentFootballPage = (currentFootballPage + 1) % MAX_MATCHES;
           updateDisplayMatches();
         }
         drawLedColor(100, 50);
@@ -146,8 +182,13 @@ void runCurrentState() {
   }
 
   if (millis() - lastBatteryCheck > batteryInterval || lastBatteryCheck == 0) {
-    if (M5.Power.getBatteryLevel() >= 0) {
-      drawBattery(w - (wBattery + 8), 8, M5.Power.getBatteryLevel());
+    // Stack-chan misura la batteria tramite il proprio INA226; M5.Power non è il driver corretto.
+    float batteryVoltage = M5StackChan.getBatteryVoltage();
+    if (batteryVoltage > 0.0f) {
+      float batteryCurrent = M5StackChan.getBatteryCurrent();
+      drawBattery(w - (wBattery + 8), 8, batteryVoltageToPercent(batteryVoltage), batteryCurrent < -0.01f);
+    } else {
+      lastBatteryCheck = millis();
     }
   }
 }
@@ -198,11 +239,11 @@ void blankAllDevice() {
   M5.Display.clear(TFT_BLACK);
   M5.Display.endWrite();
 
-  colorList.assign(nLedNumber, TFT_BLACK);
+  for (int i = 0; i < nLedNumber; i++) colorList[i] = TFT_BLACK;
 }
 
 
-void drawTitleBar(uint16_t color, String text) {
+void drawTitleBar(uint16_t color, const String& text) {
   auto& display = M5StackChan.Display();
   display.fillRect(0, 0, w, hTitleBar, color);
   display.drawFastHLine(0, hTitleBar, w, TFT_BLACK);  // Bordo inferiore della barra
@@ -213,7 +254,7 @@ void drawTitleBar(uint16_t color, String text) {
 }
 
 
-void drawFooterBar(String text) {
+void drawFooterBar(const String& text) {
   auto& display = M5StackChan.Display();
   display.fillRect(0, h - 15, w, 15, TFT_BLACK);
   display.setTextSize(1);
@@ -228,7 +269,6 @@ void drawFooterBar(String text) {
 
 
 void drawLedColor(unsigned long intervalMs, uint8_t brightness) {
-  if (colorList.empty()) return;
   if (!bLedOn) {
     for (int led = 0; led < nLedNumber; led++) {
       M5StackChan.setRgbColor(led, 0, 0, 0);
@@ -256,12 +296,20 @@ void drawLedColor(unsigned long intervalMs, uint8_t brightness) {
     }
     M5StackChan.refreshRgb();
 
-    currentLedIndex = (currentLedIndex + 1) % colorList.size();
+    currentLedIndex = (currentLedIndex + 1) % nLedNumber;
   }
 }
 
 
-void drawBattery(int xBattery, int yBattery, uint8_t percentage) {
+uint8_t batteryVoltageToPercent(float voltage) {
+  // Curva approssimata LiPo 1S: protegge anche da valori INA226 non validi.
+  if (voltage <= 3.20f) return 0;
+  if (voltage >= 4.20f) return 100;
+  return static_cast<uint8_t>((voltage - 3.20f) * 100.0f);
+}
+
+
+void drawBattery(int xBattery, int yBattery, uint8_t percentage, bool isCharging) {
   auto& display = M5StackChan.Display();
 
   // Limita la percentuale tra 0 e 100 per sicurezza
@@ -283,8 +331,6 @@ void drawBattery(int xBattery, int yBattery, uint8_t percentage) {
 
   // 4. Determina il colore in base allo stato di carica e alla percentuale
   uint16_t fillColor = TFT_GREEN;
-  bool isCharging = M5.Power.isCharging();  // Controlla se la batteria è in carica
-
   if (isCharging) {
     fillColor = 0x03E0;  // Verde più scuro (Dark Green in RGB565)
   } else if (percentage < 5) {

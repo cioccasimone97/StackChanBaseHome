@@ -25,8 +25,9 @@ const unsigned long meteoInterval = 1UL * 60UL * 1000UL;  // Aggiorna ogni 1 min
 // --- WEB CONFIG ---
 HTTPClient http;
 JsonDocument doc;
-DeserializationError error;
-int nMaxHTTPRetry = 3;
+// Riutilizzato per limitare il JSON calcio ai soli campi mostrati a video.
+JsonDocument footballFilter;
+const uint8_t nMaxHTTPRetry = 3;
 
 
 // --- STATE MACHINE DEFINITION ---
@@ -42,7 +43,6 @@ State currentState;
 
 // --- GENERIC VARIABLE ---
 String lastUpdDateTime = "--/--/---- --:--:--";
-String url;
 int centerX;
 int centerY;
 int bodyCenterY;
@@ -54,7 +54,8 @@ const int nLedNumber = 12;
 int currentLedIndex = 0;
 unsigned long lastLedCheck = 0;
 unsigned long lastBatteryCheck = 0;
-std::vector<uint16_t> colorList;
+// Buffer fisso: evita riallocazioni nel loop degli stati.
+uint16_t colorList[nLedNumber] = {};
 bool bLedOn = true;
 int wBattery = 38;                                   // Larghezza del corpo della batteria
 int hBattery = 16;                                   // Altezza del corpo della batteria
@@ -64,6 +65,7 @@ const unsigned long batteryInterval = 5UL * 1000UL;  // Aggiorna ogni 5 secondi
 // --- NEWS CONFIG ---
 const int MAX_NEWS = 10;
 String newsHeadlines[MAX_NEWS];
+int newsCount = 0;
 int currentNewsIndex = 0;
 unsigned long lastNewsCheck = 0;
 const unsigned long NEWS_UPDATE_INTERVAL = 1UL * 60UL * 1000UL;  // Aggiorna ogni 1 minuto
@@ -72,7 +74,10 @@ const unsigned long NEWS_UPDATE_INTERVAL = 1UL * 60UL * 1000UL;  // Aggiorna ogn
 // --- FOOTBALL SCORES CONFIG ---
 const unsigned long footballInterval = 1UL * 60UL * 1000UL;  // Aggiorna ogni 1 minuto
 const char* FOOTBALL_API_KEY = SECRET_FOOTBALL_API_KEY;
-const int MAX_MATCHES = 150;
+// La schermata mostra le partite di oggi: 64 elementi sono ampiamente sufficienti
+// e mantengono prevedibile l'uso della RAM globale.
+const int MAX_MATCHES = 64;
+const uint32_t MIN_FREE_HEAP_FOR_FOOTBALL = 60000;
 const int MAX_PAGES = 20;
 int matchCount = 0;
 unsigned long lastFootballCheck = 0;
@@ -93,7 +98,8 @@ MatchItem matches[MAX_MATCHES];
 struct DisplayRow {
   bool isHeader;
   String compName;
-  MatchItem match;
+  // La partita resta nell'array matches: copiarla qui duplicherebbe molte String.
+  int matchIndex;
 };
 struct Page {
   DisplayRow rows[MAX_ROWS_PER_PAGE];
@@ -105,5 +111,4 @@ String footballStatusMsg = "Caricamento...";
 // --- IP CONFIG ---
 unsigned long lastIPCheck = 0;
 const unsigned long IP_UPDATE_INTERVAL = 1UL * 60UL * 1000UL;  // Aggiorna ogni 1 minuto
-String IPDesc = "Caricamento...";
 String currentPublicIP = "";

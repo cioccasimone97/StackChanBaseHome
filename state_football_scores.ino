@@ -24,13 +24,14 @@ void buildFootballPages() {
       int r = footballPages[pageIdx].rowCount;
       footballPages[pageIdx].rows[r].isHeader = true;
       footballPages[pageIdx].rows[r].compName = currentComp;
+      footballPages[pageIdx].rows[r].matchIndex = -1;
       footballPages[pageIdx].rowCount++;
     }
 
     // Aggiungi Partita
     int r = footballPages[pageIdx].rowCount;
     footballPages[pageIdx].rows[r].isHeader = false;
-    footballPages[pageIdx].rows[r].match = matches[i];
+    footballPages[pageIdx].rows[r].matchIndex = i;
     footballPages[pageIdx].rowCount++;
   }
 
@@ -41,26 +42,62 @@ void buildFootballPages() {
 void fetchFootballData(int nTry) {
   if (WiFi.status() != WL_CONNECTED) {
     footballStatusMsg = "WiFi disconnesso";
+    lastFootballCheck = millis();
     return;
   }
 
-  nTry++;
-  url = "https://api.football-data.org/v4/matches";
+  // Evita un reset per esaurimento heap se altri stati hanno già usato molta RAM.
+  if (ESP.getFreeHeap() < MIN_FREE_HEAP_FOR_FOOTBALL) {
+    footballStatusMsg = "Memoria insufficiente";
+    Serial.printf("Football skipped, heap libero: %u\n", ESP.getFreeHeap());
+    lastFootballCheck = millis();
+    return;
+  }
+
+  (void)nTry;
+  logHeap("calcio prima");
 
   WiFiClientSecure client;
   client.setInsecure();
 
-  if (http.begin(client, url)) {
+  String requestUrl = "https://api.football-data.org/v4/matches";
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    footballStatusMsg = "Ora non sincronizzata";
+    lastFootballCheck = millis();
+    return;
+  }
+  char dateBuffer[11];
+  strftime(dateBuffer, sizeof(dateBuffer), "%Y-%m-%d", &timeinfo);
+  // Senza intervallo data l'API può restituire molte competizioni e saturare l'heap.
+  requestUrl += "?dateFrom=" + String(dateBuffer) + "&dateTo=" + String(dateBuffer);
+
+  if (http.begin(client, requestUrl)) {
+    http.setConnectTimeout(5000);
     http.setTimeout(10000);  // 10 secondi timeout
+    // Evita i chunk HTTP nello stream passato direttamente ad ArduinoJson.
+    http.useHTTP10(true);
     http.addHeader("User-Agent", "ESP32-M5Stack/1.0");
     http.addHeader("X-Auth-Token", FOOTBALL_API_KEY);
 
     int httpResponseCode = http.GET();
 
     if (httpResponseCode == 200) {
-      String payload = http.getString();
+      // Il payload completo contiene molti campi inutilizzati e può esaurire l'heap.
+      // Il filtro [0] si applica a tutti gli elementi dell'array matches.
+      footballFilter.clear();
+      footballFilter["matches"][0]["competition"]["name"] = true;
+      footballFilter["matches"][0]["homeTeam"]["shortName"] = true;
+      footballFilter["matches"][0]["homeTeam"]["name"] = true;
+      footballFilter["matches"][0]["awayTeam"]["shortName"] = true;
+      footballFilter["matches"][0]["awayTeam"]["name"] = true;
+      footballFilter["matches"][0]["score"]["fullTime"]["home"] = true;
+      footballFilter["matches"][0]["score"]["fullTime"]["away"] = true;
+      footballFilter["matches"][0]["status"] = true;
+      footballFilter["matches"][0]["utcDate"] = true;
 
-      error = deserializeJson(doc, payload);
+      doc.clear();
+      DeserializationError error = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(footballFilter));
 
       if (!error) {
         matchCount = 0;
@@ -118,10 +155,12 @@ void fetchFootballData(int nTry) {
         }
       } else {
         footballStatusMsg = "Errore JSON";
+        Serial.printf("Football JSON error: %s, heap libero: %u\n", error.c_str(), ESP.getFreeHeap());
       }
 
     } else {
       footballStatusMsg = "Errore HTTP " + String(httpResponseCode);
+      Serial.printf("Football HTTP error: %d\n", httpResponseCode);
     }
     http.end();
   } else {
@@ -129,6 +168,7 @@ void fetchFootballData(int nTry) {
   }
 
   lastFootballCheck = millis();
+  logHeap("calcio dopo");
 }
 
 
@@ -137,7 +177,7 @@ void updateDisplayMatches() {
   display.fillScreen(TFT_BLACK);
 
   drawTitleBar(TFT_DARKGREEN, "PARTITE DI OGGI");
-  colorList.assign(nLedNumber, TFT_DARKGREEN);
+  for (int i = 0; i < nLedNumber; i++) colorList[i] = TFT_DARKGREEN;
 
   if (matchCount == 0 || totalFootballPages == 0) {
     display.setTextSize(2);
@@ -181,20 +221,21 @@ void updateDisplayMatches() {
       // Casa
       display.setTextColor(TFT_WHITE);
       display.setTextDatum(textdatum_t::middle_left);
-      display.drawString(row.match.homeTeam, 10, currentY + (rowHeight / 2));
+      const MatchItem& match = matches[row.matchIndex];
+      display.drawString(match.homeTeam, 10, currentY + (rowHeight / 2));
 
       // Risultato / Ora
       String scoreOrTime = "";
       uint16_t statusColor = TFT_LIGHTGREY;
 
-      if (row.match.status == "IN_PLAY" || row.match.status == "PAUSED") {
-        scoreOrTime = String(row.match.homeScore) + " - " + String(row.match.awayScore);
+      if (match.status == "IN_PLAY" || match.status == "PAUSED") {
+        scoreOrTime = String(match.homeScore) + " - " + String(match.awayScore);
         statusColor = TFT_GREEN;
-      } else if (row.match.status == "FINISHED") {
-        scoreOrTime = String(row.match.homeScore) + " - " + String(row.match.awayScore);
+      } else if (match.status == "FINISHED") {
+        scoreOrTime = String(match.homeScore) + " - " + String(match.awayScore);
         statusColor = TFT_WHITE;
       } else {
-        scoreOrTime = row.match.matchTime;
+        scoreOrTime = match.matchTime;
         statusColor = TFT_CYAN;
       }
 
@@ -205,7 +246,7 @@ void updateDisplayMatches() {
       // Ospite
       display.setTextColor(TFT_WHITE);
       display.setTextDatum(textdatum_t::middle_right);
-      display.drawString(row.match.awayTeam, w - 10, currentY + (rowHeight / 2));
+      display.drawString(match.awayTeam, w - 10, currentY + (rowHeight / 2));
     }
 
     currentY += rowHeight;

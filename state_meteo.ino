@@ -1,52 +1,53 @@
 void fetchMeteoData(int nTry) {
   if (WiFi.status() != WL_CONNECTED) {
     weatherDesc = "WiFi disconnesso";
+    lastMeteoCheck = millis();
     return;
   }
 
-  nTry++;
+  const String requestUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + String(LATITUDE, 4) + "&longitude=" + String(LONGITUDE, 4) + "&current=temperature_2m,weather_code" + "&daily=temperature_2m_max,temperature_2m_min" + "&hourly=temperature_2m" + "&forecast_days=1" + "&timezone=auto";
+  bool updated = false;
+  logHeap("meteo prima");
 
-  url = "https://api.open-meteo.com/v1/forecast?latitude=" + String(LATITUDE, 4) + "&longitude=" + String(LONGITUDE, 4) + "&current=temperature_2m,weather_code" + "&daily=temperature_2m_max,temperature_2m_min" + "&hourly=temperature_2m" + "&forecast_days=1" + "&timezone=auto";
+  // Retry iterativo: la versione ricorsiva riutilizzava HTTPClient prima di http.end().
+  for (uint8_t attempt = nTry; attempt < nMaxHTTPRetry && !updated; attempt++) {
+    http.setConnectTimeout(5000);
+    http.setTimeout(8000);
+    // Open-Meteo può usare Transfer-Encoding: chunked; HTTP/1.0 fornisce uno stream JSON continuo.
+    http.useHTTP10(true);
+    if (!http.begin(requestUrl)) continue;
 
-  http.begin(url);
-  int httpResponseCode = http.GET();
-  if (httpResponseCode > 0) {
-    String payload = http.getString();
-    error = deserializeJson(doc, payload);
+    int httpResponseCode = http.GET();
+    if (httpResponseCode > 0) {
+      doc.clear();
+      DeserializationError error = deserializeJson(doc, http.getStream());
+      if (!error) {
+        currentTemp = doc["current"]["temperature_2m"];
+        int wcode = doc["current"]["weather_code"];
+        weatherDesc = getWeatherDescription(wcode);
 
-    if (!error) {
-      currentTemp = doc["current"]["temperature_2m"];
-      int wcode = doc["current"]["weather_code"];
-      weatherDesc = getWeatherDescription(wcode);
+        tempMax = doc["daily"]["temperature_2m_max"][0];
+        tempMin = doc["daily"]["temperature_2m_min"][0];
 
-      tempMax = doc["daily"]["temperature_2m_max"][0];
-      tempMin = doc["daily"]["temperature_2m_min"][0];
-
-      JsonArray hourlyArray = doc["hourly"]["temperature_2m"];
-      int index = 0;
-      for (JsonVariant v : hourlyArray) {
-        if (index < 24) {
-          hourlyTemps[index] = v.as<float>();
-          index++;
+        JsonArray hourlyArray = doc["hourly"]["temperature_2m"];
+        int index = 0;
+        for (JsonVariant v : hourlyArray) {
+          if (index < 24) hourlyTemps[index++] = v.as<float>();
         }
+        updated = true;
+      } else {
+        weatherDesc = "Errore dati meteo";
+        Serial.printf("Meteo JSON error: %s\n", error.c_str());
       }
-
-      struct tm timeinfo;
-      if (getLocalTime(&timeinfo)) {
-        char timeBuffer[25];
-        strftime(timeBuffer, sizeof(timeBuffer), "%d/%m/%Y %H:%M:%S", &timeinfo);
-        lastUpdDateTime = String(timeBuffer);
-      }
+    } else {
+      weatherDesc = "Errore HTTP";
+      Serial.printf("Meteo HTTP error: %d\n", httpResponseCode);
     }
-  } else {
-    weatherDesc = "Errore HTTP";
-    if (nTry < nMaxHTTPRetry) {
-      fetchMeteoData(nTry);
-    }
+    http.end();
   }
 
-  http.end();
   lastMeteoCheck = millis();
+  logHeap("meteo dopo");
 
   struct tm timeinfo;
   if (getLocalTime(&timeinfo)) {
@@ -134,7 +135,7 @@ void updateDisplayMeteo() {
   }
 
   // Carico i colori nell'array
-  colorList.assign(nLedNumber, topColor);
+  for (int i = 0; i < nLedNumber; i++) colorList[i] = topColor;
 
 
   // Disegno di un gradiente a bande orizzontali fluide (ottimizzato per microcontroller)
